@@ -1,14 +1,10 @@
 var EventEmitter = require('events').EventEmitter;
-var childProcess = require('child_process');
 var qs = require('querystring');
 var util = require('util');
 var request = require('request');
-var processExists = require('process-exists');
 var chalk = require('chalk');
 
-var spotifyWebHelperWinProcRegex;
-
-var DEFAULT_PORT = 4370;
+var DEFAULT_PORT = 4371;
 var RETURN_ON = ['login', 'logout', 'play', 'pause', 'error', 'ap'];
 var DEFAULT_RETURN_AFTER = 60;
 
@@ -63,65 +59,6 @@ function generateRandomLocalHostName() {
 	return generateRandomString(10) + '.spotilocal.com';
 }
 
-function getWebHelperPath() {
-	if (process.platform === 'win32') {
-		return require('user-home') + '\\AppData\\Roaming\\Spotify\\SpotifyWebHelper.exe';
-	}
-	return require('user-home') + '/Library/Application Support/Spotify/SpotifyWebHelper';
-}
-
-function isSpotifyWebHelperRunning() {
-	return new Promise(function (resolve, reject) {
-		if (process.platform === 'darwin') {
-			return processExists('SpotifyWebHelper', function (err, exists) {
-				if (err) {
-					reject(err);
-				} else {
-					resolve(exists);
-				}
-			});
-		} else if (process.platform === 'win32') {
-			var ps = require('./lib/wintools-ps');
-
-			ps(function (err, lst) {
-				if (err) {
-					return reject(err);
-				}
-				spotifyWebHelperWinProcRegex = spotifyWebHelperWinProcRegex || new RegExp('spotifywebhelper.exe', 'i');
-
-				for (var k in lst) {
-					if (spotifyWebHelperWinProcRegex.test(lst[k].desc)) {
-						return resolve(true);
-					}
-					spotifyWebHelperWinProcRegex.lastIndex = 0;
-				}
-				return resolve(false);
-			});
-		} else {
-			// SpotifyWebHelper starts with Spotify by default in Linux
-			return resolve(true);
-		}
-	});
-}
-
-function startSpotifyWebHelper() {
-	return new Promise(function (resolve, reject) {
-		var child = childProcess.spawn(getWebHelperPath(), {detached: true});
-		child.on('error', function (err) {
-			reject(new Error('Spotify is not installed. ' + err.message));
-		});
-		child.unref();
-		isSpotifyWebHelperRunning()
-		.then(function (isRunning) {
-			if (isRunning) {
-				resolve(true);
-			} else {
-				reject(new Error('Cannot start Spotify.'));
-			}
-		});
-	});
-}
-
 function SpotifyWebHelper(opts) {
 	if (!(this instanceof SpotifyWebHelper)) {
 		return new SpotifyWebHelper(opts);
@@ -144,20 +81,6 @@ function SpotifyWebHelper(opts) {
 				}
 			})
 			.catch(reject);
-		});
-	};
-	this.ensureSpotifyWebHelper = function () {
-		return new Promise(function (resolve, reject) {
-			isSpotifyWebHelperRunning()
-			.then(isRunning => {
-				if (isRunning) {
-					return resolve();
-				}
-				return startSpotifyWebHelper();
-			})
-			.catch(function (err) {
-				reject(err);
-			});
 		});
 	};
 	this.generateSpotifyUrl = function (url) {
@@ -288,8 +211,7 @@ function SpotifyWebHelper(opts) {
 		.catch(err => this.player.emit('error', err));
 	};
 
-	this.ensureSpotifyWebHelper()
-	.then(() => this.getOauthToken())
+	this.getOauthToken()
 	.then(oauthtoken => {
 		this.oauthtoken = oauthtoken;
 		return this.getCsrfToken();
